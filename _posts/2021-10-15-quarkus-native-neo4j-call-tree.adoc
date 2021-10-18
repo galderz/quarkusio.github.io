@@ -52,27 +52,27 @@ https://github.com/quarkusio/quarkus-quickstarts/tree/main/hibernate-orm-quickst
 as a sample Quarkus application.
 Download the application and execute:
 
-```
+----
 ./mvnw package -Pnative \
     -Dquarkus.native.container-build=true \
     -Dquarkus.native.builder-image=quay.io/quarkus/ubi-quarkus-mandrel:21.3-java11 \
     -Dquarkus.native.enable-reports
-```
+----
 
 The above command will generate a native binary and the CSV files mentioned above.
 
 Next, start Neo4j in a container:
 
-```
-$ export NEO_USER=...
+----
 $ export NEO_PASS=...
-$ docker run \
+$ podman run \
+    --detach \
+    --rm \
     --name testneo4j \
     -p7474:7474 -p7687:7687 \
-    -d \
-    --env NEO4J_AUTH=$(NEO_USER)/$(NEO_PASS) \
+    --env NEO4J_AUTH=neo4j/${NEO_PASS} \
     neo4j:latest
-```
+----
 
 Once the container is running,
 you can access the Neo4j browser via http://localhost:7474[http://localhost:7474].
@@ -81,7 +81,8 @@ To import the CSV files, we first need to craft an import cypher script,
 which will import the data within the CSV files and create graph database nodes and edges.
 Put the following cypher script into a filed called `import.cypher`:
 
-```
+[source, cypher]
+----
 CREATE CONSTRAINT unique_vm_id ON (v:VM) ASSERT v.vmId IS UNIQUE;
 CREATE CONSTRAINT unique_method_id ON (m:Method) ASSERT m.methodId IS UNIQUE;
 
@@ -120,7 +121,7 @@ MATCH (m1:Method {methodId: row.StartId})
 MATCH (m2:Method {methodId: row.EndId})
 MERGE (m1)-[:VIRTUAL {bci: row.BytecodeIndexes}]->(m2)
 RETURN count(*);
-```
+----
 
 NOTE: The script above is generic enough to work with any Quarkus application,
 but it will only work with Mandrel 21.3.0.Final.
@@ -129,17 +130,16 @@ so if you're on this GraalVM CE, you'll have to modify the CSV file names with p
 
 Next, copy the import cypher script and CSV files into Neo4j's import folder:
 
-```
-$ docker cp targert/*-native-image-source-jar/reports testneo4j:/var/lib/neo4j/import
-$ docker cp import.cypher testneo4j:/var/lib/neo4j
-```
+----
+$ podman cp target/*-native-image-source-jar/reports testneo4j:/var/lib/neo4j/import
+$ podman cp import.cypher testneo4j:/var/lib/neo4j
+----
 
 After copying all the files, invoke the import script:
 
-```
-$ docker exec testneo4j /bin/bash \
-    -c "cat import.cypher | /var/lib/neo4j/bin/cypher-shell -u ${NEO_USER} -p ${NEO_PASS}"
-```
+----
+$ podman exec testneo4j bin/cypher-shell -u neo4j -p ${NEO_PASS} -f import.cypher"
+----
 
 Once the import completes (shouldn't take more than a couple of minutes),
 go to the Neo4j browser and you'll be able to observer a small summary of the data in the graph:
@@ -155,9 +155,10 @@ but given it's a Hibernate ORM application,
 I can assume that some sort of `persist` method will be called.
 Go into the browser and type a query for this:
 
-```
+[source, cypher]
+----
 match (m:Method) where m.name = "persist" return *
-```
+----
 
 image::persist-query.png[]
 
@@ -181,9 +182,10 @@ We can see above that one of the `persist` is to `javax.persistence.EntityManage
 This is the JPA method for persisting entities and the one we'll be exploring further.
 Let's narrow the query down to that one to have a clearer view:
 
-```
+[source, cypher]
+----
 match (m:Method) where m.name = "persist" and m.type =~ ".*EntityManager" return *
-```
+----
 
 image::entitymanager-persist-query.png[]
 
@@ -197,9 +199,10 @@ and then walk backwards to find what links
 exist to that method within a certain depth.
 For example, let's try to find what other methods have a direct link to the `persist` method:
 
-```
+[source, cypher]
+----
 match (m:Method) <- [r*1..1] - (o) where m.name = "persist" and m.type =~ ".*EntityManager" return *
-```
+----
 
 image::entitymanager-persist-depth-1-query.png[]
 
@@ -208,9 +211,10 @@ which takes a `org.acme.hibernate.orm.Fruit` parameter and returns a `javax.ws.r
 
 Next, let's expand the query further and try to find all links with a depth of 2 to the `persist` method:
 
-```
+[source, cypher]
+----
 match (m:Method) <- [r*1..2] - (o) where m.name = "persist" and m.type =~ ".*EntityManager" return *
-```
+----
 
 image::entitymanager-persist-depth-2-query.png[]
 
@@ -236,10 +240,10 @@ the Neo4j browser will be unable to visualize them all.
 In this particular case, we've observed that this happens at depth of 6.
 We've checked and the query returns quickly if we execute it directly using the `cypher-shell`:
 
-```
-$ docker exec testneo4j /var/lib/neo4j/bin/cypher-shell -u neo4j -p test \
-    "match (m:Method) <- [r*1..6] - (o) where m.name = \"persist\" and m.type =~ \".*EntityManager\" return *"
-```
+----
+$ podman exec testneo4j bin/cypher-shell -u neo4j -p ${NEO_PASS} \
+    "match (m:Method) <- [r*1..6] - (o) where m.name = 'persist' and m.type =~ '.*EntityManager' return *"
+----
 
 We've only just started exploring the possibilities of Neo4j for this use case,
 and so we still have to learn all the tips and tricks to make the most out of it.
