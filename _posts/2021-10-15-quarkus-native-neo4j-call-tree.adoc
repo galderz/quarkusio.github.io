@@ -8,7 +8,7 @@ author: galderz
 ---
 :imagesdir: /assets/images/posts/quarkus-native-neo4j-call-tree
 
-This blog post is the culmimation of an idea that Sanne floated to me during some lunch,
+This blog post is the culmination of an idea that Sanne (Grinovero) floated to me during some lunch,
 back at a time when we, remote engineers, would occasionally meet face to face and have the opportunity to share ideas spontaneously.
 I'm unsure if the lunch was in Neuchâtel or Barcelona,
 but essentially Sanne was diagnosing an issue and he struggled with GraalVM's native image analysis call tree text output.
@@ -16,36 +16,40 @@ He wondered whether that data could be instead be formatted differently and impo
 I'm happy to announce that GraalVM CE and Mandrel 21.3.0 releases include improvements to address this particular issue.
 
 Essentially, they bring much needed improvements for analysing code paths that get included in the native binary.
-Debugging these code paths aims to answer questions such as: why does this code path get included in the native binary?
+Debugging these code paths aims to answer questions such as:
+
+[quote]
+why does this code path get included in the native binary?
+
 These code paths can be optionally reported when enabling printing of the analysis call tree.
 With Quarkus, this is achieved by passing in the `-Dquarkus.native.enable-reports` option.
 
 Before 21.3.0, when Quarkus instructed a GraalVM distribution to print out the call tree,
-the resulting output would be a single text file representing the call tree in a custom tree format.
+the resulting output would be a single text file representing the call tree in a https://www.graalvm.org/reference-manual/native-image/Reports[custom tree format].
 This text file would contain a lot of duplicated information and could be as big as several gigabytes in size.
 
-GraalVM 21.3.0 introduces the possibility of representing call trees as CSV files instead of as a single text file.
-These CSV files represent method information and different connections between them
-(e.g. direct calls, virtual calls, overrides...etc).
+GraalVM 21.3.0 introduces the possibility of representing call trees as CSV files instead of a single text file.
+These CSV files contain method information and different connections between them
+(e.g. direct calls, virtual calls, overrides, etc).
 One immediate benefit is that there's no information duplication,
-so the CSV files can be several times smaller in size compared to the text file.
+so the CSV files can be several times smaller in size compared to the corresponding text file.
 In some situations, they can be as much as several thousands times smaller.
 However, the main reason why this feature was implemented was
-to make it easier to feed the call tree to graph databases, such as
+to make it easier to feed the call tree to other tools, like graph databases such as
 https://neo4j.com/[Neo4j].
 Once imported, a user can execute graph queries over the call tree,
 which makes it easier to extract relevant information and answer questions like the one above.
 
-In this blog post, you will learn:
+In this blog post, you will learn how to:
 
-1. How to instruct a Quarkus application to generate call tree CSV files.
-2. How to run a Neo4j graph database within a container
-3. How to import those CSV files into a Neo4j graph database.
+1. Instruct a Quarkus application to generate call tree CSV files.
+2. Run a Neo4j graph database within a container
+3. Import those CSV files into a Neo4j graph database.
 4. Run Neo4j cypher queries against the graph database to understand the call paths in the Quarkus application.
 
 This blog post uses the
 https://github.com/quarkusio/quarkus-quickstarts/tree/main/hibernate-orm-quickstart[Quarkus Hibernate ORM quickstart]
-as sample Quarkus application.
+as a sample Quarkus application.
 Download the application and execute:
 
 ```
@@ -142,8 +146,8 @@ go to the Neo4j browser and you'll be able to observer a small summary of the da
 
 image::data-loaded-side.png[]
 
-The data above shows that there are ~100'000 methods,
-and just over ~300'000 edges between them.
+The data above shows that there are ~100000 methods,
+and just over ~300000 edges between them.
 
 Next, let's try out some cypher queries to explore the call graph.
 I don't know anything about the Quarkus application itself,
@@ -183,8 +187,7 @@ match (m:Method) where m.name = "persist" and m.type =~ ".*EntityManager" return
 
 image::entitymanager-persist-query.png[]
 
-If we select the node,
-notice how we get information about the method itself.
+Note that if we hover over the node we get information about the method itself.
 
 Going back to the original question,
 we wanted to find out why a given code path gets included.
@@ -200,7 +203,7 @@ match (m:Method) <- [r*1..1] - (o) where m.name = "persist" and m.type =~ ".*Ent
 
 image::entitymanager-persist-depth-1-query.png[]
 
-Aha, so there's only one path and that's a virtual call (iow, an interface call) that comes from the `create` method in the `org.acme.hibernate.orm.FruitResource` class,
+Aha, so there's only one path and that's a virtual call (i.e., an interface call) that comes from the `create` method in the `org.acme.hibernate.orm.FruitResource` class,
 which takes a `org.acme.hibernate.orm.Fruit` parameter and returns a `javax.ws.rs.core.Response`.
 
 Next, let's expand the query further and try to find all links with a depth of 2 to the `persist` method:
@@ -227,9 +230,9 @@ but that's not necessarily the only path:
 
 image::entitymanager-persist-depth-3-query.png[]
 
-You can continue going up layers, 
+You can continue going up layers,
 but unfortunately if you reach a depth with too many nodes,
-the Neo4j browser will be unable  visualize them all.
+the Neo4j browser will be unable to visualize them all.
 In this particular case, we've observed that this happens at depth of 6.
 We've checked and the query returns quickly if we execute it directly using the `cypher-shell`:
 
